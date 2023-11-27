@@ -222,6 +222,8 @@ And we finished the prove.
 
 However, although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. Thus making it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
 
+:hammer: :wrench:
+
 * Sliced score matching:
 
 Sliced score matching uses random projections to approximate
@@ -229,29 +231,154 @@ $tr(\nabla_{\theta}s_{\theta}(x))$ in score matching.
 
 :hammer: :wrench:
 
+2. Sampling with Langevin dynamics
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+:hammer: :wrench:
 
 
 ## DDPM
 
+# Paper Daily: 2D Editing Methods
+
+## InstructPix2Pix
+
+1. Generating a multi-modal training dataset
+2. InstructPix2Pix training and inference
+
+![](./assets/InstructPix2Pix/pipeline.png)
+
+1. Generating a multi-modal training dataset
+
+* Dataset:
+
+$$(I_o, I_e, c_T),$$
+
+where $I_o$ represents the original image, $I_e$ represents the edited image, $c_T$ represents the text condition.
+
+* Generating instructions and paired captions:
+
+We first operate entirely in the text domain, where we leverage a large language model to take in image captions and produce editing instructions and the resulting text captions after the edit.
+
+Our model is trained by finetuning GPT-3 on a relatively small human-written dataset of editing triplets: (1) input captions, (2) edit instructions, (3) output captions.
+
+To produce the fine-tuning dataset, we sampled 700 input captions from the LAION-Aesthetics V2 6.5+ dataset and manually wrote instructions and output captions.
+
+Using this data, we fine-tuned the GPT-3 Davinci model for a single epoch using the default training parameters.
+
+Our final corpus of generated instructions and captions consists of 454, 445 examples.
+
+* Generating paired Images from paired captions:
+
+Next, we use a pretrained text-to-image model to transform a pair of captions (referring to the image before and after the edit) into a pair of images.
+
+We therefore use Prompt-to-Prompt, a recent method aimed at encouraging multiple generations from a text-to-image diffusion model to be similar. This is done through borrowed cross attention weights in some number of denoising steps. 
+
+For instance, changes of larger magnitude, such as those which change large-scale image structure (e.g., moving objects around, replacing with objects of
+different shapes), may require less similarity in the generated image pair. Fortunately, Prompt-to-Prompt has as a parameter that can control the similarity between the two images: the fraction of denoising steps p with shared attention weights. Unfortunately, identifying an optimal value of p from only the captions and edit text is difficult. We therefore generate 100 sample pairs of images per caption-pair, each with a random p \~ U(0.1, 0.9), and filter these samples by using a CLIP-based metric: the directional similarity in CLIP space. Performing this filtering not only helps maximize the diversity and quality of our image pairs, but also makes our data generation more robust to failures of Prompt-to-Prompt and Stable Diffusion.
+
+2. InstructPix2Pix training and inference
+
+* Training objective:
+
+$$L = \mathbb{E}_{\mathcal{E}(x),\mathcal{E}(c_I),c_T,\epsilon\textasciitilde
+\mathcal{N}(0,1),t}\left[\|\epsilon-\epsilon_\theta(z_t,t,\mathcal{E}(c_I),c_T)\|_2^2\right],$$
+
+where $\mathcal{E}$ is the image encoder, $z_t$ is $z=\mathcal{E}(x)$ adding noise to $t$ step. $c_I$ is the image condition and $c_T$ is the text condition.
+
+* Network structure:
+
+We initialize the weights of our model with a pretrained Stable Diffusion checkpoint. To support image conditioning, we add additional input channels
+to the first convolutional layer, concatenating $z_t$ and $\mathcal{E}(c_I)$.
+All available weights of the diffusion model are initialized from the pretrained checkpoints, and weights that operate on the newly added input channels are initialized to zero. We reuse the same text conditioning mechanism that was
+originally intended for captions to instead take as input the text edit instruction $c_T$.
+
+* Training details:
+
+Can be found in the appendix of original paper.
+
+* Classifier-free guidance for two conditionings:
+
+Classifier-free guidance effectively shifts probability mass toward data where an implicit classifier $p_\theta(c|z_t)$ assigns high likelihood to the conditioning $c$. Training for unconditional denoising is done by simply setting the conditioning to a fixed null value $c = \emptyset$ at some frequency during training.
+
+For our task, the score network $e_\theta (z_t,c_I,c_T)$ has two conditionings: the input image $c_I$ and text instruction $c_T$. We find if beneficial to leverage classifier-free guidance with respect to both conditionings.During training, we randomly set only $c_I = \emptyset_I$ for 5% of examples, only $c_T = \emptyset_T$ for 5% of examples, and both $c_I = \emptyset_I$ and $c_T = \emptyset_T$ for 5% of examples. Our model is therefore capable of conditional or unconditional denoising with respect to both or either conditional inputs. We introduce two guidance scales, $s_I$ and $s_T$, which can be adjusted to trade off how strongly the generated samples correspond with the input image and how strongly they correspond with the edit instruction.
+
+We have:
+
+$$\widetilde{e}_\theta (z_t,c_I,c_T) = e_\theta (z_t,\emptyset,\emptyset)+S_I \cdot(e_\theta (z_t,c_I,\emptyset)-e_\theta (z_t,\emptyset,\emptyset)) +S_T \cdot(e_\theta (z_t,c_I,c_T)-e_\theta (z_t,c_I,\emptyset)). $$
+
+Proof:
+
+Our generative model learns $P(z|c_I,c_T)$, the probability distribution of image latents $z=\mathcal{E}(x)$ conditioned on an input image $c_I$ and a text instruction $c_T$. We arrive at our particular classifier-free guidance formulation by expressing the conditional probability as follows:
+
+$$P(z|c_I,c_T)=\frac{P(z,c_I,c_T)}{P(c_I,c_T)}=\frac{P(c_I,c_T|z)P(z)}{P(c_I,c_T)}=\frac{P(c_T|c_I,z)P(c_I|z)P(z)}{P(c_I,c_T)}.$$
+
+Taking the logarithm and then the derivative gives us the following expression:
+
+$$\nabla_z\log P(c_T|c_I,z) + \nabla_z\log P(c_I|z) + \nabla_z\log P(z),$$
+
+which corresponds to our equation. 
+
+Note: it is said that such sequence in $c_I$ and $c_T$ can acheive better performance.
+
+
 # Paper Daily: 2D-lifted-3D Guidances with 3D Priors
 
-## Zero-123
+## Zero-1-to-3
+
+1. Learning to control camera viewpoint
+2. View-conditional diffusion
+3. Coordinate System
+
+![](./assets/Zero-1-to-3/pipeline.png)
+
+1. Learning to control camera viewpoint
+
+* Dataset:
+
+$$\{(x,x_{(R,T)},R,T),\}$$
+
+where $x$ is a single RGB image, $R\in\mathbb{R}^{3 \times 3}$ is the relative rotation, $T\in\mathbb{R}^3$ is the relative translation, $x_{(R,T)}$ is the novel view after transform from $x$.
+
+* Training objective:
+
+$$\mathbb{E}_{z\textasciitilde\mathcal{E}(x),t,\epsilon\textasciitilde\mathcal{N}(0,1)}\left[\epsilon-\epsilon_\theta(z_t,t,c(x,R,T))\right]_2^2,$$
+
+where $z_t$ is $z=\mathcal{E}(x)$ adding noise to timestep $t$, $\mathcal{E}$ is the image encoder.
+
+2. View-conditional diffusion
+
+We adopt a hybrid conditioning mechanism. On one stream, a CLIP embedding of the input image is concatenated with $(R,T)$ to form a “posed CLIP” embedding
+$c(x,R,T)$. We apply cross-attention to condition the denoising U-Net, which provides high-level semantic information of the input image. On the other stream, the input image is channel-concatenated with the image being denoised, assisting the model in keeping the identity and details of the object being synthesized. To be able to apply classifier-free guidance, we follow a similar mechanism proposed in __InstructPix2Pix__, setting the input image and the posed CLIP embedding to a null vector randomly, and scaling the conditional information during inference.
+
+We use the rendered dataset to finetune a pretrained Stable Diffusion model for performing novel view synthesis. Since the original Stable Diffusion network is not conditioned on multimodal text embeddings, the original Stable Diffusion architecture needs to be tweaked and finetuned to be able to take conditional information from an image. This is done in __Stable diffusion image variations(a hugging face space) by lambdalabs__, and we use their released checkpoints. To further adapt the model to accept conditional information from an image along with a relative camera pose, we concatenate the image CLIP embedding (dimension 768) and the pose vector (dimension 4) and initialize another fully-connected layer ($772 \to 768$) to ensure compatibility with the diffusion model architecture. The learning rate of this layer is scaled up to be $10\times$ larger than the other layers. The rest of the network architecture is kept the same as the original Stable Diffusion.
+
+3. Coordinate system
+
+* polar angle, azimuth angle, radius:
+
+$$(\theta, \phi, r).$$
+
+* normalization:
+
+$$[-0.5,0.5]^3.$$
+
+* sample view-points range:
+
+$$\theta \in [0,\pi], \phi \in [0,2\pi], r \in [1.5,2.2]$$
+
+* horizontal view of camera:
+
+$$49.1\degree.$$
+
+* View encoding:
+
+$$(\theta, \sin(\phi), \cos(\phi), r).$$
+
+The reason we do this encode is because the incontinuity of the azimuth angle. The view of $1\degree$ may be very close to that of $359\degree$, but they are very different in azimuth value. But after we hard code it with $\sin(\phi)$ and $\cos(\phi)$, they will achieve better continuity since they will be close to each other in encoding space.
+
+
+![](./assets/Zero-1-to-3/coordinate system.png)
+
 
 ## MVDream
 
