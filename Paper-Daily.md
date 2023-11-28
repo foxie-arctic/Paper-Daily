@@ -62,6 +62,7 @@ $$ v_{ab} = \frac{v_a \cdot s(v_b) - v_b \cdot s(v_a)}{s(v_b) - s(v_a)}.$$
 
 1. Score Matching for score estimation
 2. Sampling with Langevin dynamics
+3. Noise conditional score networks(NCSN) 
 
 Score matching with Langevin dynamics.
 
@@ -176,7 +177,7 @@ $$\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x})}\left[\|s_\theta(\widetilde{x
 
 $$\Leftrightarrow$$
 
-$$\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right],$$
+$$\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right]+const,$$
 
 where the perturbed data distribution $q_{\sigma}(\widetilde{x})=\int q_{\sigma}(\widetilde{x}|x) p_{data}(x)dx$.
 
@@ -212,28 +213,86 @@ Then, we put this term back to the objective:
 
 $$=\frac{1}{2}\int(\|s_\theta(\widetilde{x})\|_2^2 + \|\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})\|_2^2)q_{\sigma}(\widetilde{x})d\widetilde{x} -\int\langle s_\theta(\widetilde{x}), \nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})\rangle q_{\sigma}(\widetilde{x})d\widetilde{x},$$
 
-$$=\frac{1}{2}\int\int(\|s_\theta(\widetilde{x})\|_2^2 + \|\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})\|_2^2)q_{\sigma}(\widetilde{x}|x)p_{data}(x)dxd\widetilde{x}$$
+$$=\frac{1}{2}\int\int(\|s_\theta(\widetilde{x})\|_2^2)q_{\sigma}(\widetilde{x}|x)p_{data}(x)dxd\widetilde{x}$$
 
-$$-\int\int\langle s_\theta(\widetilde{x}), \nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x) \rangle q_{\sigma}(\widetilde{x}|x)p_{data}(x)dxd\widetilde{x},$$
+$$-\int\int\langle s_\theta(\widetilde{x}), \nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x) \rangle q_{\sigma}(\widetilde{x}|x)p_{data}(x)dxd\widetilde{x}+const,$$
 
-$$=\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right].$$
+$$=\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right]+const.$$
 
 And we finished the prove.
 
-However, although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. Thus making it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
+The underlying intuition is that following the gradient of the log density at some corrupted point $\widetilde{x}$ should ideally move us towards the clean sample $x$. We can prove this by writing the explicit expression of $\nabla_{\widetilde{x}}\log q_\sigma(\widetilde{x}|x)$ when $K$ is a gaussian kernel.
 
-:hammer: :wrench:
+$$\nabla_{\widetilde{x}}\log q_\sigma(\widetilde{x}|x) = \nabla_{\widetilde{x}}\log (\frac{1}{\sqrt{2\pi}\sigma}\exp\{-\frac{1}{2}\frac{(\widetilde{x}-x)^2}{\sigma^2}\})= \frac{x-\widetilde{x}}{\sigma^2}.$$
+
+However, although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. Thus making it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
 
 * Sliced score matching:
 
 Sliced score matching uses random projections to approximate
-$tr(\nabla_{\theta}s_{\theta}(x))$ in score matching. 
+$tr(\nabla_{\theta}s_{\theta}(x))$ in score matching. The idea is to transform high dimensional problems to one dimensional problems. Inspired by __Sliced Wasserstein distance__, we consider projecting $\nabla_x \log p_{data}(x)$ and $s_\theta(x)$ onto some random direction $v$ and propose to compare their average difference along that random direction.
+
+The objective will be:
+
+$$\frac{1}{2}\mathbb{E}_{v\textasciitilde p(v),x\textasciitilde p_{data}(x)}\left[(v^Ts_\theta(x)-v^T\nabla_x \log p_{data}(x))^2\right]$$
+
+$$\Leftrightarrow$$
+
+$$\mathbb{E}_{v\textasciitilde p(v),x\textasciitilde p_{data}(x)}\left[v^T\nabla_x s_\theta(x)v + \frac{1}{2}\|s_\theta(x)\|_2^2\right],$$
+
+where $p(v)$ is a simple distribution of random vectors, for instance, the multivariate standard normal. And $v^T\nabla_x s_\theta(x)v$ can be efficiently computed by forward mode auto-differentiation.
+
+However, it will spend much time in forward mode auto-differentiation.
 
 :hammer: :wrench:
 
 2. Sampling with Langevin dynamics
 
+Langevin dynamics can produce samples from a probability density p(x) using only the score function $\nabla_x \log p_{data}(x)$. 
+
+*  Stochastic optimization:
+
+Stochastic optimization is a method to find maximum likelihood(ML) or maximum a posteriori(MAP) parameters $\theta^*$. 
+
+Let $\theta$ denote a parameter vector, with $p(\theta)$ a prior distribution, and $p(x|\theta)$ the likelihood given our model parmeterized by $\theta$. The posterior distribution of a set of $N$ data items $X = \{x_i\}_{i=1}^N$ is: $p(\theta|X) \propto p(\theta)\Pi_{i=1}^N p(x_i|\theta)$. 
+
+What we gonna do is: find the gradient of the logarithm posterior function, and backpropogate to do gradient accent.
+
+First we write the gradient of the logarithm posterior function in general case:
+
+$$\nabla_\theta \log p(\theta) + \Sigma_{i=1}^N \nabla_\theta \log p(x_i|\theta).$$
+
+However, this requires to go through the whole dataset which is computational costly. So instead we use a subset of $n$ data items $X_t = \{x_{t1},\dots,x_{tn}\}$ is given, and in this case the parameter are updated as follows:
+
+$$\Delta \theta_t = \frac{\epsilon_t}{2}(\nabla_{\theta_t} \log p(\theta_t) + \frac{N}{n} \Sigma_{i=1}^n \nabla_{\theta_t} \log p(x_i|\theta_t)),$$
+
+where you may regard $\epsilon_t$ as a sequence of step sizes (similar with learning rate). The intuition is that we use the average gradient of the subset to represent the overall gradient of the whole dataset. To ensure convergence, you should also ensure:
+
+$$\Sigma_{t=1}^T \epsilon_t = \infty, \Sigma_{t=1}^T \epsilon_t^2 < \infty,$$
+
+where the first constraint ensures that the parameters will reach the high probability regions anyway no matter how far away it was initialized to. And the second ensures that the parameters will converge instead of bouncing around the target. Typically, we may have:
+
+$$\epsilon_t = a(b+t)^{-\gamma},$$
+
+where it decayed polynomially with $\gamma \in (0.5,1]$. 
+
+However, the problem is, this method did not take parameter uncertainty into account and can potentially overfit data.
+
+* Stochastic gradient with Langevin dynamics:
+
+$$\Delta \theta_t = \frac{\epsilon_t}{2}(\nabla_{\theta_t} \log p(\theta_t) + \frac{N}{n} \Sigma_{i=1}^n \nabla_{\theta_t} \log p(x_i|\theta_t)) + \eta_t,$$
+
+$$\eta_t \textasciitilde \mathcal{N}(0, \sqrt{\epsilon_t}^2).$$
+
+In our scenario, we will apply this to $\widetilde{x}_0$. Given a fixed step size $\epsilon > 0$, and $\widetilde{x}_0 \textasciitilde \pi(x)$ where $\pi$ is the prior distribution, we can sample recursively using:
+
+$$\widetilde{x}_t = \widetilde{x}_{t-1} + \frac{\epsilon}{2}\nabla_x \log p(\widetilde{x}_{t-1}) + \sqrt{\epsilon}z_t,$$
+
+where $z_t\textasciitilde\mathcal{N}(0,I)$. The distribution of $\widetilde{x}_T$ equals $p(x)$ when $\epsilon \to 0$ and $T \to \infty$, and we can get an exact sample from $p(x)$. Note that such sampling method only requires a score function $\nabla_x \log p(x)$. Therefore, we replace it with our trained score network $s_\theta(x) \approx \nabla_x \log p(x)$ in Langevin dynamics. Then we get our final sampling result.
+
 :hammer: :wrench:
+
+3. NCSN
 
 
 ## DDPM
@@ -271,7 +330,7 @@ Our final corpus of generated instructions and captions consists of 454, 445 exa
 
 Next, we use a pretrained text-to-image model to transform a pair of captions (referring to the image before and after the edit) into a pair of images.
 
-We therefore use Prompt-to-Prompt, a recent method aimed at encouraging multiple generations from a text-to-image diffusion model to be similar. This is done through borrowed cross attention weights in some number of denoising steps. 
+We therefore use __Prompt-to-Prompt__, a recent method aimed at encouraging multiple generations from a text-to-image diffusion model to be similar. This is done through borrowed cross attention weights in some number of denoising steps. 
 
 For instance, changes of larger magnitude, such as those which change large-scale image structure (e.g., moving objects around, replacing with objects of
 different shapes), may require less similarity in the generated image pair. Fortunately, Prompt-to-Prompt has as a parameter that can control the similarity between the two images: the fraction of denoising steps p with shared attention weights. Unfortunately, identifying an optimal value of p from only the captions and edit text is difficult. We therefore generate 100 sample pairs of images per caption-pair, each with a random p \~ U(0.1, 0.9), and filter these samples by using a CLIP-based metric: the directional similarity in CLIP space. Performing this filtering not only helps maximize the diversity and quality of our image pairs, but also makes our data generation more robust to failures of Prompt-to-Prompt and Stable Diffusion.
@@ -289,8 +348,7 @@ where $\mathcal{E}$ is the image encoder, $z_t$ is $z=\mathcal{E}(x)$ adding noi
 
 We initialize the weights of our model with a pretrained Stable Diffusion checkpoint. To support image conditioning, we add additional input channels
 to the first convolutional layer, concatenating $z_t$ and $\mathcal{E}(c_I)$.
-All available weights of the diffusion model are initialized from the pretrained checkpoints, and weights that operate on the newly added input channels are initialized to zero. We reuse the same text conditioning mechanism that was
-originally intended for captions to instead take as input the text edit instruction $c_T$.
+All available weights of the diffusion model are initialized from the pretrained checkpoints, and weights that operate on the newly added input channels are initialized to zero. We reuse the same text conditioning mechanism that was originally intended for captions to instead take as input the text edit instruction $c_T$.
 
 * Training details:
 
