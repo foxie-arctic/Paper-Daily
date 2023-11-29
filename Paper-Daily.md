@@ -62,7 +62,8 @@ $$ v_{ab} = \frac{v_a \cdot s(v_b) - v_b \cdot s(v_a)}{s(v_b) - s(v_a)}.$$
 
 1. Score Matching for score estimation
 2. Sampling with Langevin dynamics
-3. Noise conditional score networks(NCSN) 
+3. Challenges of score-based generative modeling
+4. Noise conditional score networks(NCSN) 
 
 Score matching with Langevin dynamics.
 
@@ -292,10 +293,191 @@ where $z_t\textasciitilde\mathcal{N}(0,I)$. The distribution of $\widetilde{x}_T
 
 :hammer: :wrench:
 
-3. NCSN
+3. Challenges of score-based generative modeling
 
+* Manifold hypothesis:
+
+Manifold hypothesis is that the data in the real world tend to concentrate on low dimensional manifolds embedded in a high dimensional space(for instance, the ambient space). 
+
+Under this hypothesis, the score-based generative model will face 2 difficulties.
+
+First, the score is a graident taken in ambient space. So it won't be as effective as directly modeling on the low dimensional manifold. In many case, the gradient is "undefined". Second, the score matching objective procides a consistent score estimator only when the support of the data distribuion of the data distribution is the whole space.
+
+So in order to address these problems, we find that perturbing the data with a small Guassian noise, the loss will converge. This is because the support of the Gaussian noise distribution is in the whole space. So our data will not be confined on a low dimensional manifold, and we obviates difficulties from the manifolf hypothesis and well-defined score estimation.
+
+![](./assets/SMLD/manifold hypothesis.png)
+
+* Low-density regions:
+
+Regions of low data density means that there's not enough evidence in this region to estimate score functions accurately. In practice, the expectation in the objective is simulated with i.i.d. samples $\{x_i\}_{i=1}^N \textasciitilde (i.i.d.) p_{data}(x)$. Consider any region $\mathcal{R}\subset\mathbb{R}^D$ such that $p_{data}(x)$. In most cases $\{x_i\}_{i=1}^N  \cap \mathcal{R} = \emptyset$, and score matching will not have sufficient data samples to estimate the score accurately for $x\in \mathcal{R}$.
+
+Also, consider a mixture distribution $p_{data}(x) = \pi p_1(x) + (1-\pi)p_2(x)$, where $p_1$ and $p_2$ are normalized distributions with disjoint supports, and $\pi \in (0,1)$. In the support of $p_1(x)$, $\nabla_x \log p_{data}(x) = \nabla_x \log p_1(x)$. And in the support of $p_2(x)$, $\nabla_x \log p_{data}(x) = \nabla_x \log p_2(x)$. The sampling with Langevin dynamics in this case will not depend on $\pi$. We can approximate a data distribution with low density regions with a disjoint normalized distribution. This will require a very small step size and a very large number of steps to mix.
+
+We observed that samples from Langevin dynamics have incorrect relative density between the two modes. The solution to this is to use annealed Langevin dynamics as stated in the next section.
+
+![](./assets/SMLD/low data density regions.png)
+
+4. NCSN
+
+Consider the flaws above, noise conditional score-based network is proposed.
+
+We observe that perturbing data with random Gaussian noise makes the data distribution more amenable to score-based generative modeling. First, since the support of our Gaussian noise distribution is the whole space, the perturbed data will not be confined to a low dimensional manifold, which obviates difficulties from the manifold hypothesis and makes score estimation well-defined. Second, large Gaussian noise has the effect of filling low density regions in the original unperturbed data distribution; therefore score matching may get more training signal to improve score estimation. Furthermore, by using multiple noise levels we can obtain a sequence of noise-perturbed distributions
+that converge to the true data distribution. We can improve the mixing rate of Langevin dynamics on multimodal distributions by leveraging these intermediate distributions in the spirit of simulated annealing and annealed importance sampling.
+
+![](./assets/SMLD/annealed Langevin dynamics.png)
+
+* NCSN structure:
+
+Let $\{\sigma_i\}_{i=1}^L$ be a positive geometric sequence that satisfies $\frac{\sigma_1}{\sigma_2} = \dots = \frac{\sigma_{L-1}}{\sigma_L} > 1$. Let $q_{\sigma}(x) = \int p_{data}(t)\mathcal{N}(x|t,\sigma^2I)dt$ denote the perturbed data distribution. We choose the noise levels $\{\sigma_i\}_{i=1}^L$ such that $\sigma_1$ is large enough to mitigate the difficulties mentioned above and $\sigma_L$ is small enough to minimize the effect on data. We aim to train a conditional score network to jointly estimate the scores of all perturbed data distributions, $\forall\sigma \in \{\sigma_i\}_{i=1}^L : s_\theta(x,\sigma) \approx \nabla_x \log q_\sigma(x)$.
+
+* Training score matching:
+
+Choose the noise distribution to be $q_\sigma(\widetilde{x}|x) = \mathcal{N}(\widetilde{x}|x, \sigma^2I)$. We can get its score function: $\nabla_\widetilde{x}\log q_\sigma(\widetilde{x}|x) = \frac{x-\widetilde{x}}{\sigma^2}$.
+
+$$\mathcal{l}(\theta;\sigma) = \frac{1}{2}\mathbb{E}_{p_{data}(x)}\mathbb{E}_{\widetilde{x}\textasciitilde\mathcal{N}(x,\sigma^2I)}\left[\|s_\theta(\widetilde{x},\sigma) + \frac{x-\widetilde{x}}{\sigma^2}\|_2^2\right].$$
+
+Then, we combine the objective on different noise levels to one unified objective:
+
+$$\mathcal{L}(\theta;\{\sigma_i\}_{i=1}^L) = \frac{1}{L}\Sigma_{i=1}^L \lambda(\sigma_i)\mathcal{l}(\theta;\sigma_i),$$
+
+where $\lambda(\sigma_i)>0$ is a coefficient function depending on $\sigma_i$. 
+
+The reason we need $\lambda(\sigma_i)$ is that we want the values of $\lambda(\sigma_i)\mathcal{l}(\theta;\sigma_i)$ for all $\{\sigma_i\}_{i=1}^L$ are roughly of the same order of magnitude. 
+
+Choose $\lambda(\sigma) = \sigma^2$ with $\|s_\theta(x,\sigma)\|_2 \propto \frac{1}{\sigma}$. Since we under this choice, we have $\lambda(\sigma) \mathcal{l}(\theta;\sigma) = \sigma^2\mathcal{l}(\theta;\sigma) = \frac{1}{2}\mathbb{E}\left[\|\sigma s_\theta(\widetilde{x},\sigma)+\frac{\widetilde{x}-x}{\sigma}\|_2^2\right]$. Since $\frac{\widetilde{x}-x}{\sigma} \textasciitilde\mathcal{N}(0,I)$ and $\|\sigma s_\theta(x, \sigma)\|_2 \propto 1$, we can easily conclude that the order of magnitude of $\lambda(\sigma) \mathcal{l}(\theta;\sigma)$ does not depend on $\sigma$.
+
+* Inferencing via annealed Langevin dynamics:
+
+In order to fully understand the idea of NCSN inference, we will recall denoising score matching.
+
+$$\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x})}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})\|_2^2\right]$$
+
+$$\Leftrightarrow$$
+
+$$\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right]+const,$$
+
+where the perturbed data distribution $q_{\sigma}(\widetilde{x})=\int q_{\sigma}(\widetilde{x}|x) p_{data}(x)dx$.
+
+However, remember that although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. Thus making it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
+
+So what we are doing in NCSN is: we initialize a white noise(a standard gaussian) for updating, and we train a series of score network for different noise level $\sigma$. And start from the white noise, we first use the score network of largest noise level $\sigma_1$. By using this to update the white noise along with Langevin dynamics, we will intuitively reach a region where noise level is decreased. Since: 
+
+$$\nabla_{\widetilde{x}}\log q_\sigma(\widetilde{x}|x) = \nabla_{\widetilde{x}}\log (\frac{1}{\sqrt{2\pi}\sigma}\exp\{-\frac{1}{2}\frac{(\widetilde{x}-x)^2}{\sigma^2}\})= \frac{x-\widetilde{x}}{\sigma^2}.$$
+
+Since the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$, so it will only be slightly recovered. Then we may assume that the noise level is decreased to $\sigma_2$. And we use the corresponding score estimator to further decrease its noise level recursively. Until we reach the original data distribution.
+
+The reason of using denoising network is it can solve the problems mentioned in the previous section. When $\sigma_1$ is sufficiently large, the low density regions of $q_{\sigma_1}(x)$ become small and the modes become less isolated. As discussed previously, this can make score estimation more accurate, and the mixing of Langevin dynamics faster. We can therefore assume that Langevin dynamics produce good samples for $q_{\sigma_1}(x)$. These samples are likely to come from high density regions of $q_{\sigma_1}(x)$, which means they are also likely to reside in the high density regions of $q_{\sigma_2}(x)$, given that $q_{\sigma_1}(x)$ and $q_{\sigma_2}(x)$ only slightly differ from each other. As score estimation and Langevin dynamics perform better in high density regions, samples from $q_{\sigma_1}(x)$ will serve as good initial samples for Langevin dynamics of $q_{\sigma_2}(x)$. Similarly, $q_{\sigma_{i-1}}(x)$ provides good initial samples for $q_{\sigma_i}(x)$, and finally we obtain samples of good quality from $q_{\sigma_L}(x)$.
+
+We choose $\alpha_i \propto \sigma_i^2$. The motivation is to fix the magnitude of the "signal-to-noise" ratio $\frac{\alpha_i s_\theta(x,\sigma_I)}{2\sqrt{\alpha_i}z}$ in Langevin dynamics. Note that $\mathbb{E}\left[\|\frac{\alpha_i s_\theta(x,\sigma_I)}{2\sqrt{\alpha_i}z}\|_2^2\right] \approx \mathbb{E}\left[\frac{\alpha_i \|s_\theta(x,\sigma_i)\|_2^2}{4}\right] \propto \frac{1}{4}\mathbb{E}\left[\|\sigma_i s_\theta(x,\sigma_i)\|_2^2\right] \propto \frac{1}{4}$. Therefore it does not depend on $\sigma_i$. 
+
+![](./assets/SMLD/NCSN inference.png)
+
+The network can be applied to both generative task and inpainting task. The latter one is very similar to __Repaint__.
+
+![](./assets/SMLD/NCSN inpainting.png)
 
 ## DDPM
+
+1. Basic theory and proof
+2. Training and inferencing
+
+A better version of score-based model with a weighted variational bound as its objective.
+
+![](./assets/DDPM/pipeline.png)
+
+1. Basic theory and proof
+
+* Diffusion process:
+
+Diffusion process, or forward process, is fixed to a Markov chain that gradually adds Gaussian noise to the data according to a variance schedule $\beta_1,\dots,\beta_T$.
+
+We write the data distribution we want to sample from as:
+
+$$x_0 \textasciitilde q(x_0).$$
+
+And the diffusion process can then be written as:
+
+$$q(x_{1:T}|x_0) = \Pi_{t=1}^T q(x_t|x_{t-1}),$$
+
+$$q(x_t|x_{t-1}) = \mathcal{N}(x_t;\mu_\theta(x_t,t),\Sigma_\theta(x_t,t)).$$
+
+* Reverse process:
+
+Reverse process is what we really want to build. It is defined as a Markov chain with learned Gaussian transitions starting at:
+
+$$p(x_T) = \mathcal{N}(x_T;0,I).$$
+
+We hope we will gradually recover the data $x_0$ by reversing the diffusion process, and we also model the transition function as a Guassian distribution:
+
+$$p_\theta(x_{0:T}) = p(x_T)\Pi_{t=1}^T p_\theta(x_{t-1}|x_t),$$
+
+$$p_\theta(x_{t-1}|x_t) = \mathcal{N}(x_{t-1};\mu_\theta(x_t,t),\Sigma_\theta(x_t,t)).$$
+
+We need to learn the parameters of the guassian distribution.
+
+* Objective:
+
+It is very important to provide an objective for model to learn at the beginning. Intuitively, we want to maximize:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\left[\log p_\theta(x_0)\right].$$
+
+That is, we want to maximize the expectation of probability of $x_0$ to be produced from $p_\theta(x)$, where $x_0$ is sampled from the real world data distribution $q(x_0)$. For the ease of gradient decent, we rewrite it to minimize the objective:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\left[-\log p_\theta(x_0)\right].$$
+
+However, we can not directly optimize this objective since we have no idea what $p_\theta(x_0)$ is. So instead, our approach is to apply variational bound to it, i.e. to find an upper bound for it and minimize its upper bound. If the upper bound can be minimized, the objective can also be minimized.
+
+Let's first observe this objective. Notice that it has a form of $-\log$ inside the expectation, and it is a convex function. So naturally, this remind us of the Jensen's inequality:
+
+$$\mathbb{E}[f(X)] \ge f(\mathbb{E}[X]),$$
+
+where $f(x)$ is a convex function, $X$ is a random variable. The inequality reverses when the function is concave. And we can prove the following non-negativity of KL-divergence:
+
+$$D_{KL}(p\|q) \ge 0.$$
+
+Proof:
+
+$$D_{KL}(p\|q) = \mathbb{E}_{x \textasciitilde p(x)}[\log \frac{p(x)}{q(x)}],$$
+
+$$=\mathbb{E}_{x \textasciitilde p(x)}[-\log \frac{q(x)}{p(x)}],$$
+
+$$\ge -\log(\mathbb{E}_{x \textasciitilde p(x)}[\frac{q(x)}{p(x)}]),$$
+
+$$= -\log\left[\int q(x) dx\right] = -\log 1 = 0.$$
+
+Thus, we may write:
+
+$$D_{KL}(q(x_{1:T}|x_0)\|p_\theta(x_{1:T}|x_0)) \ge 0,$$
+
+which can be rewrite as:
+
+$$\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}[\log \frac{q(x_{1:T}|x_0)}{p_\theta(x_{1:T}|x_0)}] \ge 0,$$
+
+$$\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}[-\log \frac{p_\theta(x_{1:T}|x_0)}{q(x_{1:T}|x_0)}] \ge 0,$$
+
+$$\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}[-\log \frac{p_\theta(x_{0:T})}{p_\theta(x_0)q(x_{1:T}|x_0)}] \ge 0,$$
+
+$$\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}[-\log p_\theta(x_0)] \le \mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}[-\log \frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}].$$
+
+So we can easily find a upper bound for the objective:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\left[-\log p_\theta(x_0)\right] = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_0)\right],$$
+
+$$=\mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_0)\right],$$
+
+$$\le \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log \frac{p_\theta(x_{0:T})}{q(x_{1:T}|x_0)}\right],$$
+
+$$= \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\log \frac{p_\theta(x_{0:T-1}|x_T)}{q(x_{1:T}|x_0)}\right],$$
+
+$$= \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\log \frac{\Pi_{t=1}^T p_\theta(x_{t-1}|x_t)}{\Pi_{t=1}^Tq(x_{t}|x_{t-1})}\right],$$
+
+$$= \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=1}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t}|x_{t-1})}\right].$$
+
+So we use this upper bound as our objective instead for optimization:
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=1}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t}|x_{t-1})}\right].$$
+
+:hammer::wrench:
 
 # Paper Daily: 2D Editing Methods
 
