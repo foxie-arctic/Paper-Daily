@@ -399,7 +399,35 @@ And the diffusion process can then be written as:
 
 $$q(x_{1:T}|x_0) = \Pi_{t=1}^T q(x_t|x_{t-1}),$$
 
-$$q(x_t|x_{t-1}) = \mathcal{N}(x_t;\mu_\theta(x_t,t),\Sigma_\theta(x_t,t)).$$
+$$q(x_t|x_{t-1}) = \mathcal{N}(x_t;\sqrt{1-\beta_t}x_{t-1},\beta_tI).$$
+
+Another notable property of forward process is that, the sampling $x_t$ from any noise level(time step $t$) has a closed form. We write it as:
+
+$$q(x_t|x_0) = \mathcal{N}(x_t;\sqrt{\bar{\alpha_t}}x_0,(1-\bar{\alpha_t})I),$$
+
+where $\alpha_t = 1-\beta_t, \bar{\alpha_t} = \Pi_{t=1}^T \alpha_t$.
+
+It can be easily proved with reparameterization:
+
+$$x_t = \sqrt{1-\beta_t}x_{t-1} + \sqrt{\beta_t}\epsilon,$$
+
+$$x_t = \sqrt{1-\beta_t}(\sqrt{1-\beta_{t-1}}x_{t-2}+\sqrt{\beta_{t-1}}\epsilon)+\sqrt{\beta_t}\epsilon,$$
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{\beta_t}\epsilon + \sqrt{(1-\beta_t)\beta_{t-1}}\epsilon + \dots + \sqrt{(1-\beta_t)\dots(1-\beta_2)\beta_1}\epsilon,$$
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{\beta_t + (1-\beta_t)\beta_{t-1} + \dots + (1-\beta_t)\dots(1-\beta_2)\beta_1}\epsilon,$$
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\alpha_t + \alpha_t(1-\alpha_{t-1}) + \dots + \alpha_t\dots\alpha_2(1-\alpha_1))}\epsilon,$$
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\Pi_{t=1}^T \alpha_t}\epsilon,$$
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\bar{\alpha_t}}\epsilon,$$
+
+where $\epsilon\textasciitilde\mathcal{N}(0,1)$.
+
+So 
+
+$$q(x_t|x_0) = \mathcal{N}(x_t;\sqrt{\bar{\alpha_t}}x_0,(1-\bar{\alpha_t})I).$$
 
 * Reverse process:
 
@@ -476,6 +504,146 @@ $$= \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q
 So we use this upper bound as our objective instead for optimization:
 
 $$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=1}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t}|x_{t-1})}\right].$$
+
+We'll further rewrite this upper bound as:
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=2}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t}|x_{t-1})} - \log \frac{p_\theta(x_0|x_1)}{q(x_1|x_0)}\right],$$
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=2}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t}|x_{t-1},x_0)} - \log \frac{p_\theta(x_0|x_1)}{q(x_1|x_0)}\right],$$
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log p_\theta(x_T) -\Sigma_{t=2}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t-1}|x_t,x_0)} \frac{q(x_{t-1}|x_0)}{q(x_t|x_0)} - \log \frac{p_\theta(x_0|x_1)}{q(x_1|x_0)}\right],$$
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log \frac{p_\theta(x_T)}{q(x_T|x_0)} -\Sigma_{t=2}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t-1}|x_t,x_0)} - \log p_\theta(x_0|x_1)\right],$$
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[-\log \frac{p(x_T)}{q(x_T|x_0)} -\Sigma_{t=2}^T\log \frac{p_\theta(x_{t-1}|x_t)}{q(x_{t-1}|x_t,x_0)} - \log p_\theta(x_0|x_1)\right],$$
+
+$$L = \mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[\log \frac{q(x_T|x_0)}{p(x_T)} +\Sigma_{t=2}^T\log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)} - \log p_\theta(x_0|x_1)\right],$$
+
+Take a closer look at the first term:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[\log \frac{q(x_T|x_0)}{p(x_T)}\right].$$
+
+Generally:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[\log \frac{q(x_T|x_0)}{p(x_T)}\right],$$
+
+$$=\int q(x_{0:T}) \log \frac{q(x_T|x_0)}{p(x_T)} dx_{0:T},$$
+
+$$=\int q(x_T,x_0) \log \frac{q(x_T|x_0)}{p(x_T)} dx_Tdx_0,$$
+
+$$=\int q(x_0) \int q(x_T|x_0) \log \frac{q(x_T|x_0)}{p(x_T)} dx_Tdx_0,$$
+
+$$=\int q(x_0) D_{KL}(q(x_T|x_0)\|p(x_T))dx_0,$$
+
+$$=\int q(x_{0:T}) D_{KL}(q(x_T|x_0)\|p(x_T))dx_{0:T},$$
+
+$$=\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[D_{KL}(q(x_T|x_0)\|p(x_T))\right].$$
+
+Take a closer look at the middle term:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[ \Sigma_{t=2}^T\log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)} \right].$$
+
+Generally:
+
+$$\mathbb{E}_{x_0 \textasciitilde q(x_0)}\mathbb{E}_{x_{1:T} \textasciitilde q(x_{1:T}|x_0)}\left[ \log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)} \right],$$
+
+$$=\int q(x_{0:T}) \log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)}dx_{0:T},$$
+
+$$=\int q(x_t,x_{t-1},x_0) \log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)}dx_t dx_{t-1} dx_0,$$
+
+$$=\int q(x_{t-1}|x_t,x_0)q(x_t,x_0) \log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)}dx_t dx_{t-1} dx_0,$$
+
+$$=\int q(x_t,x_0) \int q(x_{t-1}|x_t,x_0) \log \frac{q(x_{t-1}|x_t,x_0)}{p_\theta(x_{t-1}|x_t)}dx_{t-1}dx_tdx_0,$$
+
+$$=\int q(x_t,x_0) D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))dx_tdx_0,$$
+
+$$=\int q(x_{0:T}) D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))dx_{0:T},$$
+
+$$=\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))\right].$$
+
+So we further rewrite the objective as:
+
+$$=\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[D_{KL}(q(x_T|x_0)\|p(x_T)) + \Sigma_{t=2}^T D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))- \log p_\theta(x_0|x_1)\right].$$
+
+We call the first term $L_T$, middle terms $L_{t-1}$, and the last term $L_0$.
+
+The reason we want this form of objective is that: although we do not have the closed form of $q(x_{t-1}|x_t)$, but we can get the closed form of $q(x_{t-1}|x_t, x_0)$. In 1-D case:
+
+$$q(x_{t-1}|x_t,x_0) = \frac{q(x_t, x_{t-1}|x_0)}{q(x_t|x_0)} = \frac{q(x_t|x_{t-1})q(x_{t-1}|x_0)}{q(x_t|x_0)},$$
+
+$$\propto \frac{\exp\{-\frac{1}{2}(\frac{x_t - \sqrt{1-\beta_t}x_{t-1}}{\sqrt{\beta_t}})^2\}\exp\{-\frac{1}{2}(\frac{x_{t-1}-\sqrt{\bar{\alpha_{t-1}}}x_0}{\sqrt{1-\bar{\alpha_{t-1}}}})^2\}}{\exp\{-\frac{1}{2}(\frac{x_{t}-\sqrt{\bar{\alpha_{t}}}x_0}{\sqrt{1-\bar{\alpha_{t}}}})^2\}},$$
+
+$$\propto \exp\{-\frac{1}{2}(\frac{x_t - \sqrt{1-\beta_t}x_{t-1}}{\sqrt{\beta_t}})^2\}\exp\{-\frac{1}{2}(\frac{x_{t-1}-\sqrt{\bar{\alpha_{t-1}}}x_0}{\sqrt{1-\bar{\alpha_{t-1}}}})^2\},$$
+
+$$\frac{1}{\sigma^2} = \frac{1-\beta_t}{\beta_t} + \frac{1}{1-\bar{\alpha_{t-1}}},$$
+
+$$\frac{\mu}{\sigma^2} = \frac{1-\beta_t}{\beta_t}\frac{x_t}{\sqrt{1-\beta_t}} + \frac{\sqrt{\bar{\alpha_{t-1}}}x_0}{1-\bar{\alpha_{t-1}}},$$
+
+$$\sigma^2 = \frac{\beta_t(1-\bar{\alpha_{t-1}})}{\alpha_t - \bar{\alpha_t} + 1 - \alpha_t} = \frac{(1-\bar{\alpha_{t-1}})}{1 - \bar{\alpha_t}}\beta_t,$$
+
+$$\mu = \frac{\sqrt{\bar{\alpha_{t-1}}}\beta_t}{1 - \bar{\alpha_t}}x_0 + \frac{\sqrt{\alpha_t}(1-\bar{\alpha_{t-1}})}{1 - \bar{\alpha_t}}x_t.$$
+
+And we then have:
+
+$$q(x_{t-1}|x_t,x_0) = \mathcal{N}(x_{t-1};\mu,\sigma^2).$$
+
+For $L_T$, it is a constant in this case so we ignore it in training.
+
+For $L_{t-1}$, we further rewrite it:
+
+$$\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))\right].$$
+
+Examine $D_{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t))$:
+
+$$= \mathbb{E}_{x_{t-1}\textasciitilde q(x_{t-1}|x_t,x_0)}\left[\log\frac{\mathcal{N}(x_{t-1};\mu,\sigma^2 I)}{\mathcal{N}(x_{t-1};\mu_\theta,\Sigma_\theta)}\right].$$
+
+In DDPM, we'll set $\Sigma_\theta(x_t,t) = \sigma^2_t I$ to unstrained time dependent constants. Experimentally, both $\sigma_t^2 = \beta_t$ and $\sigma_t^2 = \widetilde{\beta_t} = \frac{(1-\bar{\alpha_{t-1}})}{1 - \bar{\alpha_t}}\beta_t$ are applicable. First choice is optimal for $x_0 \textasciitilde \mathcal{N}(0,I)$, and the second is optimal for $x_0$ deterministically set to one point. 
+
+:hammer::wrench: 
+
+Deep unsupervised learning using nonequilibrium thermodynamics. 
+
+$$=\mathbb{E}_{x_{t-1}\textasciitilde q(x_{t-1}|x_t,x_0)}\left[-\frac{1}{2}(\frac{(x_{t-1}-\mu)^2}{\sigma_t^2}) + \frac{1}{2}(\frac{(x_{t-1}-\mu_\theta)^2}{\sigma_t^2})\right],$$
+
+$$=\frac{1}{2\sigma_t^2}\mathbb{E}_{x_{t-1}\textasciitilde q(x_{t-1}|x_t,x_0)}\left[\langle(2x_{t-1}-\mu-\mu_\theta),(\mu-\mu_\theta)\rangle\right],$$
+
+$$=\frac{1}{2\sigma_t^2}\left[\langle \mathbb{E}_{x_{t-1}\textasciitilde q(x_{t-1}|x_t,x_0)}[(2x_{t-1}-\mu-\mu_\theta)],(\mu-\mu_\theta)\rangle\right],$$
+
+$$=\frac{1}{2\sigma_t^2}\left[\langle (\mu-\mu_\theta),(\mu-\mu_\theta)\rangle\right].$$
+
+So:
+
+$$L_{t-1}=\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[\frac{1}{2\sigma_t^2}\|\mu(x_t,x_0)-\mu_\theta(x_t,t)\|^2\right]+const.$$
+
+We may use this as the optimization target. But we may further simplify it using reparameter trick:
+
+$$x_t = \sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\bar{\alpha_t}}\epsilon,$$
+
+where $\epsilon\textasciitilde\mathcal{N}(0,1)$. We rewrite it as:
+
+$$x_0 = \frac{1}{\sqrt{\bar{\alpha_t}}}x_t-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon.$$
+
+Thus:
+
+$$L_{t-1}=\mathbb{E}_{x_0, \epsilon}\left[\frac{1}{2\sigma_t^2}\|\mu(x_t(x_0,\epsilon),\frac{1}{\sqrt{\bar{\alpha_t}}}x_t(x_0,\epsilon)-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon)-\mu_\theta(\frac{1}{\sqrt{\bar{\alpha_t}}}x_t-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon,t)\|^2\right]+const,$$
+
+$$L_{t-1}=\mathbb{E}_{x_0, \epsilon}\left[\frac{1}{2\sigma_t^2}\|\frac{1}{\sqrt{\alpha_t}}(x_t(x_0,\epsilon)-\frac{\beta_t}{\sqrt{1-\bar{\alpha_t}}}\epsilon)-\mu_\theta(\frac{1}{\sqrt{\bar{\alpha_t}}}x_t-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon,t)\|^2\right]+const,$$
+
+where we also model $\mu_\theta$ as:
+
+$$\mu_\theta(x_t(x_0,\epsilon), t)=\mu_\theta(\frac{1}{\sqrt{\bar{\alpha_t}}}x_t-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon,t)=\frac{1}{\sqrt{\alpha_t}}(x_t(x_0,\epsilon)-\frac{\beta_t}{\sqrt{1-\bar{\alpha_t}}}\epsilon_\theta(x_t,t)).$$
+
+So we further rewrite $L_{t-1}$ as:
+
+$$\mathbb{E}_{x_0, \epsilon}\left[\frac{\beta_t^2}{2\sigma_t^2\alpha_t(1-\bar{\alpha_t})}\|\epsilon-\epsilon_\theta(\sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\bar{\alpha_t}}\epsilon,t)\|^2\right].$$
+
+This expression is very similar to that of NCSN's training objective in SMLD.
+
+For $L_0$,
+
+$$L_0 = \mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[- \log p_\theta(x_0|x_1)\right].$$
+
+
 
 :hammer::wrench:
 
