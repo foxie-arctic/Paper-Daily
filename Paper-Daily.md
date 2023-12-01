@@ -380,6 +380,8 @@ The network can be applied to both generative task and inpainting task. The latt
 
 1. Basic theory and proof
 2. Training and inferencing
+3. Interpolationn
+4. Feature analysis
 
 A better version of score-based model with a weighted variational bound as its objective.
 
@@ -643,7 +645,75 @@ For $L_0$,
 
 $$L_0 = \mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[- \log p_\theta(x_0|x_1)\right].$$
 
+We assume that image data consists of integers in $\{0,1,\dots,255\}$ scaled linearly to $[-1,1]$. This ensures that the neural network reverse process operates on consistently scaled inputs starting from the standard normal prior $p(x_T)$. To obtain discrete log likelihoods, we set the last term of the reverse process to an independent discrete decoder derived from the Gaussian $\mathcal{N}(x_0;\mu_\theta(x_1,1),\sigma_1^2I)$:
 
+$$p_\theta(x_0|x_1) = \Pi_{i=1}^D \int_{\delta_{-}(x_0^i)}^{\delta_{+}(x_0^i)}\mathcal{N}(x_0;\mu^i_\theta(x_1,1),\sigma_1^2I)dx,$$
+
+$$\delta_+(x) = \infty (x=1)/x+\frac{1}{255} (x<1),$$
+$$\delta_-(x) = -\infty (x=-1)/x-\frac{1}{255} (x>-1),$$
+
+where $D$ is the data dimensionality and the $i$ superscript indicates extraction of one coordinate.
+
+2. Training and inferencing
+
+* Hyperparameter settings:
+
+We use the following setting for both training and inferencing:
+
+$$T=1000, \beta_1 = 10^{-4}, \beta_T=0.02,$$
+
+$$\beta_t = \beta_1 + (t-1)\frac{\beta_T-\beta_1}{T-1}.$$
+
+These constants were chosen to be small relative to data scaled to $[-1,1]$, ensuring that reverse and forward processes have approximately the same functional form while keeping the signal-to-noise ratio at $X_T$ as small as possible($L_T = D_{KL}(q(x_T|x_0)\|\mathcal{N}(0,I)) \approx 10^{-5}$ bits per dimension in our experiments).
+
+* Training:
+
+We found it beneficial to sample quality (and simpler to implement) to train on the following variant of the variational bound:
+
+$$L_{simple}(\theta) = \mathbb{E}_{x_0, \epsilon}\left[\|\epsilon-\epsilon_\theta(\sqrt{\bar{\alpha_t}}x_0 + \sqrt{1-\bar{\alpha_t}}\epsilon,t)\|^2\right],$$
+
+where $t$ is uniform between $1$ and $T$ . The $t = 1$ case corresponds to $L_0$ with the integral approximated by the Gaussian probability density function times the bin width. The $t > 1$ cases correspond to $L_{simple}$, analogous to the loss weighting used by the NCSN denoising score matching model. ($L_T$ does not appear because the forward process variances are fixed.) 
+
+Take a look at the eliminated coefficient from $L_{t-1}$:
+
+$$\frac{\beta_t^2}{2\sigma_t^2\alpha_t(1-\bar{\alpha_t})}.$$
+
+And we may replace $\sigma_t^2$ with $\beta_t$,
+
+$$\frac{\beta_t}{2\alpha_t(1-\bar{\alpha_t})} = \frac{1-\alpha_t}{2\alpha_t(1-\bar{\alpha_t})}.$$
+
+When $t=1$, this coefficient $= \frac{1}{2(1-10^{-4})} \approx \frac{1}{2}$. When $t=1000$, this coefficient $= \frac{0.02}{2(1-0.02)(1-\bar{\alpha_t})} \approx \frac{1}{98}$. So if we use the simplified version, we may intuitively consider it as a weighted variational bound. We lower the weight on small $t$, since it will be easier to recover an image with low noise level. We emphasize the weight on large $t$, and do more efforts on recovering an highly-distorted image.
+
+![](./assets/DDPM/training.png)
+
+* Inferencing:
+
+To sample $x_{t-1} \textasciitilde p_\theta(x_{t-1}|x_t)$, we will:
+
+First get $\mu_\theta$ using:
+
+$$\mu_\theta(x_t,t)=\mu_\theta(\frac{1}{\sqrt{\bar{\alpha_t}}}x_t-\frac{\sqrt{1-\bar{\alpha_t}}}{\sqrt{\bar{\alpha_t}}}\epsilon,t)=\frac{1}{\sqrt{\alpha_t}}(x_t(x_0,\epsilon)-\frac{\beta_t}{\sqrt{1-\bar{\alpha_t}}}\epsilon_\theta(x_t,t)).$$
+
+Then we sample from the distribution using reparameter trick:
+
+$$x_{t-1} = \mu_\theta(x_t,t) + \sigma_t z,$$
+
+where $z \textasciitilde \mathcal{N}(0,I)$ if $t>1$, else $z=0$.
+
+We'll do this recursively until $x_0$ is reached. We can see the sampling when $t > 1$ is very similar to Langevin dynamics.
+
+![](./assets/DDPM/inferencing.png)
+
+3. Interpolation
+
+We can interpolate source images $x_0,x_0' \textasciitilde q(x_0)$ in latent space using $q$ as a stochastic encoder,$x_t , x_t' \textasciitilde q(x_t|x_0)$, then decoding the linearly interpolated latent $\bar{x_t} = (1 − \lambda)x_t + \lambda x_t'$ into image space by the reverse process, $\bar{x_0} ∼ p(x_0|\bar{x_t})$. In effect, we use the reverse process to remove artifacts from linearly interpolating corrupted versions of the source images. We fixed the noise for different values of $\lambda$ so $x_t$ and $x_t'$ remain the same. Larger $t$ results in coarser and more varied interpolations.
+
+![](./assets/DDPM/interpolation_1.png)
+
+![](./assets/DDPM/interpolation_2.png)
+
+
+4. Feature analysis
 
 :hammer::wrench:
 
