@@ -55,6 +55,48 @@ $$ v_{ab} = \frac{v_a \cdot s(v_b) - v_b \cdot s(v_a)}{s(v_b) - s(v_a)}.$$
 
 ## 3D Gaussian Splatting
 
+# Paper Daily: Variational Bayes
+
+## Auto-Encoding Variational Bayes
+
+
+
+## Sticking and Landing
+
+1. Evidence Lower Bound(ELBO)
+
+Sticking and Landing proposes a simple, general and reliable variant of the standard reparameterized gradient estimator for the variational evidence lower bound.
+
+1. Evidence Lower Bound(ELBO)
+
+* Target of Variational Bayes:
+
+$$argmin_\phi KL(q_\phi(z|x)\|p(z|x))$$
+
+$$\Leftrightarrow$$
+
+$$argmax_\phi -KL(q_\phi(z|x)\|p(z|x))$$
+
+$$\Leftrightarrow$$
+
+$$argmax_\phi \log p(x) -KL(q_\phi(z|x)\|p(z|x))$$
+
+$$\Leftrightarrow$$
+
+$$argmax_\phi \mathbb{E}_{z \sim q_\phi(z|x)}\left[\log p(x) - \log\frac{q_\phi(z|x)}{p(z|x)}\right]$$
+
+$$\Leftrightarrow$$
+
+$$argmax_\phi \mathbb{E}_{z \sim q_\phi(z|x)}\left[\log p(x, z) - \log q_\phi(z|x)\right].$$
+
+* Different forms of ELBO estimators:
+
+$$\mathcal{L}(\phi) = \mathbb{E}_{z \sim q_\phi(z|x)}\left[\log p(x|z) + \log p(z) - \log q_\phi(z|x)\right],$$
+
+$$\mathcal{L}(\phi) = \mathbb{E}_{z \sim q_\phi(z|x)}\left[\log p(x|z) + \log p(z)\right] + \mathbb{H}[q_\phi(z|x)],$$
+
+$$\mathcal{L}(\phi) = \mathbb{E}_{z \sim q_\phi(z|x)}\left[\log p(x|z)\right] - KL(q_\phi(z|x)\|p(z)).$$
+
 
 # Paper Daily: Score-based Generative Models
 
@@ -226,7 +268,7 @@ The underlying intuition is that following the gradient of the log density at so
 
 $$\nabla_{\widetilde{x}}\log q_\sigma(\widetilde{x}|x) = \nabla_{\widetilde{x}}\log (\frac{1}{\sqrt{2\pi}\sigma}\exp\{-\frac{1}{2}\frac{(\widetilde{x}-x)^2}{\sigma^2}\})= \frac{x-\widetilde{x}}{\sigma^2}.$$
 
-However, although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. Thus making it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
+However, although $s_{\theta^*}(\widetilde{x})=\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x})$ (where ${\theta^*}=argmin_{\theta}(\frac{1}{2}\mathbb{E}_{q_{\sigma}(\widetilde{x}|x)p_{data}(x)}\left[\|s_\theta(\widetilde{x})-\nabla_\widetilde{x}\log q_{\sigma}(\widetilde{x}|x)\|_2^2\right])$) almost  surely, $\sigma$ has to be small enough to make the approximation $p_{data}(x)\approx q_{\sigma}(\widetilde{x})$ come true. This makes it impossible to directly sample from a simple distribution like standard gaussian(if $\sigma$ can be large enough, $q_{\sigma}(\widetilde{x})$ will approximate to some simple distribution like gaussian).
 
 * Sliced score matching:
 
@@ -684,6 +726,17 @@ $$\frac{\beta_t}{2\alpha_t(1-\bar{\alpha_t})} = \frac{1-\alpha_t}{2\alpha_t(1-\b
 
 When $t=1$, this coefficient $= \frac{1}{2(1-10^{-4})} \approx \frac{1}{2}$. When $t=1000$, this coefficient $= \frac{0.02}{2(1-0.02)(1-\bar{\alpha_t})} \approx \frac{1}{98}$. So if we use the simplified version, we may intuitively consider it as a weighted variational bound. We lower the weight on small $t$, since it will be easier to recover an image with low noise level. We emphasize the weight on large $t$, and do more efforts on recovering an highly-distorted image.
 
+Examine the training objective of DDPM and SMLD. In the objective of DDPM, we can see that $\epsilon$ is actually a standardized value of the added noise to the original image and it follows a standard normal distribution. Similarly, in the objective of a certain noise level $\sigma$ in SMLD, we can rewrite the weighted objective term $\lambda(\sigma) l(\theta;\sigma)$ when we take $\lambda(\sigma) = \sigma^2$ as:
+
+$$\lambda(\sigma)l(\theta;\sigma) = \frac{1}{2}\mathbb{E}_{p_{data}(x)}\mathbb{E}_{\widetilde{x} \sim \mathcal{N}(x,\sigma^2I)} \left[\|\sigma s_\theta(\widetilde{x},\sigma) + \frac{x-\widetilde{x}}{\sigma}\|_2^2\right],$$
+
+where $\frac{\widetilde{x}-x}{\sigma}$ can be considered as a standardized version of the added noise under this noise level and also follows a standard normal distribution. So we may approximately view the predicted noise $\epsilon_\theta$ in DDPM as $-{\sigma}{s_\theta(\widetilde{x},\sigma)}$ in SMLD since these 2 models share a similar structure(a low $\sigma$ transition kernel in Markov chain).
+
+So we may write the score function of DDPM as: 
+
+$$s_\theta(\widetilde{x},\sigma) = -\frac{\epsilon_\theta}{\sigma}.$$
+
+
 ![](./assets/DDPM/training.png)
 
 * Inferencing:
@@ -798,6 +851,82 @@ which corresponds to our equation.
 
 Note: it is said that such sequence in $c_I$ and $c_T$ can acheive better performance.
 
+# Paper Daily: 2D-lifted-3D Applications without 3D Priors
+
+## DreamFusion
+
+1. Score Distillation Sampling(SDS)
+
+![](./assets/DreamFusion/pipeline.png)
+
+1. SDS
+
+$$ \nabla_{\theta}\mathcal{L}_{SDS}(\phi,g(\theta)) = \mathbb{E}_{t,\epsilon}\left[ \omega(t)(\epsilon_\phi(x_t;y,t)-\epsilon)\frac{\partial x}{\partial \theta}\right]$$
+
+$$\Leftrightarrow$$
+
+$$ \nabla_{\theta}\mathcal{L}_{SDS}(\phi,g(\theta)) = \nabla_\theta \mathbb{E}_t\left[\frac{\sigma_t}{\alpha_t}\omega(t)KL(q(z_t|g(\theta);y,t)\|p_\phi(z_t;y,t))\right],$$ 
+
+where $\alpha_t$ here actually represents $\sqrt{\bar{\alpha_t}}$ in DDPM, but for convenience we will just use $alpha_t$ here instead. And $\sigma_t$ here refers to $\sqrt{1-\bar{\alpha_t}}$.
+
+Proof:
+
+KL term(our target):
+
+$$KL(q(z_t|g(\theta);y,t)\|p_\phi(z_t;y,t)) = \mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\log \frac{q(z_t|g(\theta);y,t)}{p_\phi(z_t;y,t)}\right],$$
+
+$$= \mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\log{q(z_t|g(\theta);y,t)}-\log{p_\phi(z_t;y,t)}\right].$$
+
+This target represents that we need to maximize the similarity between the likelihood of noise perturbed images rendered from a paramterized 3D representation with the likelihood of these rendered noise perturbed images in the sample space in diffusion model under this noise level.
+
+Difference and connections between score-based 2D diffusion model and SDS: i) In diffusion model, we are sampling using the score function in pixel space under different noise levels. In SDS, we are sampling using the score function in parameter space for sampling. The relationship between these two scores is: $\nabla_\theta \log p(x = f(\theta)) = \nabla_x \log p(x = f(\theta))\frac{\partial x}{\partial \theta}$. ii) The objective of diffusion model is: $\mathbb{E}_{x_{0:T} \textasciitilde q(x_{0:T})}\left[{KL}(q(x_{1:T}|x_0)\|p_\phi(x_{0:T}))\right].$ In this case, we are training $\phi$ with the real world data. The objective of SDS is: $\mathbb{E}_{\epsilon, t}\left[KL(q(z_t|g(\theta);y,t)\|p_\phi(z_t;y,t))\right]$. In this case, we use the diffusion prior as the same usage as real world data in training diffusion models to train $\theta$.
+
+Then the gradient we need to update the parameter will be:
+
+$$\nabla_\theta KL(q(z_t|g(\theta);y,t)\|p_\phi(z_t;y,t)) = \mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|g(\theta);y,t)}-\nabla_\theta\log{p_\phi(z_t;y,t)}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|g(\theta);y,t)}-\nabla_{z_t}\log{p_\phi(z_t;y,t)}\frac{\partial z_t}{\partial \theta}\right],$$
+
+where we know that $\nabla_{z_t}\log{p_\phi(z_t;y,t)}$ is the score function which is estimated by $s_\phi(z_t,t) = -\frac{\epsilon_\phi(z_t,t)}{\sigma_t}$.
+
+So we may further rewrite the function as:
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|g(\theta);y,t)}-s_\phi(z_t,t)\frac{\partial z_t}{\partial \theta}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|g(\theta);y,t)}+\frac{\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial z_t}{\partial \theta}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|g(\theta);y,t)}+\frac{\alpha_t\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial x}{\partial \theta}\right],$$
+
+where $\alpha_t$ here actually represents $\sqrt{\bar{\alpha_t}}$ in DDPM, but for convenience we will just use $alpha_t$ here instead. And $\sigma_t$ here refers to $\sqrt{1-\bar{\alpha_t}}$.
+
+Rewrite the first term to get a new form of function:
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\nabla_\theta\log{q(z_t|x;y,t)}+\frac{\alpha_t\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial x}{\partial \theta}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\frac{\partial\log{q(z_t|x;y,t)}}{\partial x}\frac{\partial x}{\partial \theta} + \frac{\partial\log{q(z_t|x;y,t)}}{\partial z_t} \frac{\partial z_t}{\partial x}\frac{\partial x}{\partial \theta} +\frac{\alpha_t\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial x}{\partial \theta}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\frac{\alpha_t}{\sigma_t}\epsilon - \frac{\alpha_t}{\sigma_t}\epsilon +\frac{\alpha_t\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial x}{\partial \theta}\right],$$
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\frac{\alpha_t\epsilon_\phi(z_t,t)}{\sigma_t}\frac{\partial x}{\partial \theta}\right].$$
+
+But still, you can observe the minor difference here between the proposed function by a term $-\epsilon$. Why is that?
+
+Inspired by __Stick and landing__, we know that ignoring the direct score function in score estimation can obtain lower variation in the estimation, i.e. we only keep the path derivative in the estimation of $\nabla_\theta\log{q(z_t|x;y,t)}$. We write its estimation with:
+
+$$\frac{\partial\log{q(z_t|x;y,t)}}{\partial x}\frac{\partial x}{\partial \theta} + \frac{\partial\log{q(z_t|x;y,t)}}{\partial z_t} \frac{\partial z_t}{\partial x}\frac{\partial x}{\partial \theta},$$
+
+and after we eliminate the direct score function term:
+
+$$\frac{\partial\log{q(z_t|x;y,t)}}{\partial z_t} \frac{\partial z_t}{\partial x}\frac{\partial x}{\partial \theta} = - \frac{\alpha_t}{\sigma_t}\epsilon.$$
+
+So we may rewrite the result as:
+
+$$=\mathbb{E}_{q(z_t|g(\theta);y,t)}\left[\frac{\alpha_t}{\sigma_t}(\epsilon_\phi(z_t,t) - \epsilon)\frac{\partial x}{\partial \theta}\right].$$
+
+Weighted it using $\omega(t)$ along with $\frac{\sigma_t}{\alpha_t}$, we can reach the final SDS equation.
+
+
+
 
 # Paper Daily: 2D-lifted-3D Guidances with 3D Priors
 
@@ -862,6 +991,106 @@ The reason we do this encode is because the incontinuity of the azimuth angle. T
 
 ## SweetDreamer
 
+## BiDiff
+
+1. 3D Diffusion Model with 2D Guidance
+2. 2D Diffusion Model with 3D Guidance
+3. Fast Initial Shape Inferencing + SDS Fine Optimization
+4. Data Initialization + Model Structure
+
+![](./assets/BiDiff/pipeline.png)
+
+1. 3D Diffusion Model with 2D Guidance
+
+* Target:
+
+Given a noise 3D representation(SDF, __NeuS__)  $\mathcal{F}_t$, recover its original 3D representation $\mathcal{F}$.
+
+* Neural radiance field input:
+
+3D feature volume $\mathcal{M}$ obtained with a 3D sparse convolution:
+
+$$\mathcal{M} = Sp3DConv(\mathcal{F}_t, t, text).$$
+
+* Image-conditioned feature volume:
+
+Sample $N \times N \times N$ grid points from $\mathcal{M}$ and project these points onto all denoised multi-view images $\mathcal{V}'_{t+1}$ from the previous step of the 2D diffusion model.(since $\mathcal{V}'_{t+1}$ is only accessable in inference, we use $\mathcal{V}_t$ with the same noise level in training instead.)
+
+At each sampled grid point $p$, we aggregate the interpolated 2D feature at its 2D projected location on each view, and calculate the mean and variance over all $N$ interpolated features to obtain the image-conditioned feature volume $\mathcal{N}$:
+
+$$\mathcal{N}(p) = [Mean(\mathcal{V}'_{t+1}(\pi(p))), Var(\mathcal{V}'_{t+1}(\pi(p)))],$$
+
+where $\pi(p)$ denotes the projection operation from 3D to 2D image plane. We fuse these two feature volumes with further sparse convolutions for predicting the clean $\mathcal{F}_0$.
+
+* Geometry prior:
+
+We design a feature volume $\mathcal{G}$ to represent a radiance field converted from the __Shap-E__ latent code $\mathcal{C}$. We hope this feature volume to provide geometry prior from __Shap-E__. We obtain this by using a NeRF MLP, and setting their parameters to the latent code $\mathcal{C}$.
+
+$$\mathcal{G}(p) = MLP(\lambda(p);\theta = \mathcal{C}),$$
+
+where $\lambda$ denotes the positional encoding operation. 
+
+To prevent the model memorizing the radiance field from __Shap-E__ and losing the capability of generating novel objects outside the scope of __Shap-E__, we add Gaussian noise at level $t_0$ to clean latent code, resulting in the noisy latent representation $\mathcal{C}_{t_0}$ and its corresponding $\mathcal{G}_{t_0}$.
+
+* Final fused feature volume:
+
+$$\mathcal{S} =  \mathcal{U}([\mathcal{M}, Sp3DConv(\mathcal{N}), Sp3DConv(\mathcal{G}_{t_0})]),$$
+
+where $\mathcal{U}$ is a 3D sparse U-Net. Then we can query features from $\mathcal{S}$ for each grid point $p$ and decode it to SDF values through several MLPs: $\mathcal{F}'_0(p) = MLP(\mathcal{S}(p), \lambda(p))$, where $\mathcal{S}(p)$ represents the interpolated features from $\mathcal{S}$ at position $p$.
+
+2. 2D Diffusion Model with 3D Guidance
+
+* Target:
+
+Given a noise multi-view image set $\mathcal{V}_t = \{\mathcal{I}_t^i\}_{i=1}^M$, recover its original multi-view image set $\mathcal{V}$.
+
+* Multi-view image input:
+
+A noise multi-view image set $\mathcal{V}_t = \{\mathcal{I}_t^i\}_{i=1}^M$.
+
+* 3D guidance input:
+
+Render multi-view images from the 3D denoised radiance field $\mathcal{F}'_0$ and feed them to 2D denoising model.
+
+ Note that the radiance field consists of a density field and a color field. The density field is constructed from the signed distance field (SDF) generated
+by our 3D diffusion model using S-density introduced in __NeuS__. To obtain the color field, we apply another color MLP to the feature volume in the 3D diffusion process.
+
+We use volume rendering to achieve the multi-view images $\{\mathcal{H}_t^i\}_{i=1}^M$. 
+
+* Multi-view feature extraction:
+
+We use these rendered multi-view images as guidance for the 2D foundation model. We first use a shared feature extractor $\mathcal{E}$ to extract hierarchical multi-view consistent features from these images.
+
+Then each extracted feature is added as residuals to the decoder of its corresponding frozen 2D foundation denoising U-Net, achieving multi-view
+modulation and joint denoising following __ControlNet__ as $\hat{f_k^i} = f_k^i + ZeroConv(\mathcal{E}(\mathcal{H}^i)[k])$, where $f_i^k$ denotes the original feature maps of the $k$-th decoder layer in 2D foundation model, $\mathcal{E}(\mathcal{H}^i)[k]$ denotes the k-th residual features of the i-th view. __ZeroConv__ is $1 \times 1$ convolution which is initialized by zeros and gradually updated during training.
+
+*  Separate control of geometry and texture:
+
+Geometry control:
+
+$$\hat{\epsilon_{3d}} = \mathcal{D}_{3d}(\mathcal{F}_t,\mathcal{V}'_{t+1},t) + \gamma_{3d}\cdot(\mathcal{D}_{3d}(\mathcal{F}_t,\mathcal{V}'_{t+1},t|\mathcal{G})-\mathcal{D}_{3d}(\mathcal{F}_t,\mathcal{V}'_{t+1},t)).$$
+
+$$\gamma_{3d} = 3.0.$$
+
+Texture control:
+
+$$\hat{\epsilon_{2d}} = \mathcal{D}_{2d}(\mathcal{V}_t,\{\mathcal{H}_t^i\}_{i=1}^M,t) + \gamma_{2d}\cdot(\mathcal{D}_{2d}(\mathcal{V}_t,\{\mathcal{H}_t^i\}_{i=1}^M,t|text)-\mathcal{D}_{2d}(\mathcal{V}_t,\{\mathcal{H}_t^i\}_{i=1}^M,t)).$$
+
+$$\gamma_{2d} = 7.5.$$
+
+Training and inference as the double CFG in __InstructPix2Pix__.
+
+3. Fast Initial Shape Inferencing + SDS Fine Optimization
+
+The generated radiance field $\mathcal{F}_0$ using BiDiff can be further used as a strong initialization of the optimization-based methods.
+
+Specifically, we first convert generated radiance field $\mathcal{F}_0$ from BiDiff into a higher resolution one $\bar{\mathcal{F}_0}$ that supports 512 × 512 resolution image rendering. This process is achieved by a fast NeRF distillation operation ($\approx$ 2min). The distillation first bounds the occupancy grids of $\bar{\mathcal{F}_0}$ with the estimated binary grids (transmittance $>$ 0.01) from the original radiance field $\mathcal{F}_0$, then overfits $\bar{\mathcal{F}_0}$ to $\mathcal{F}_0$ by minimizing both the L1 distance between two density fields and L1 distance between their renderings 2D images under random viewpoints.
+
+After initialization, we optimize $\bar{\mathcal{F}_0}$ by SDS loss following the previous SDS methods. Specifically, we set the ratio range of denoise timestep $t_{opt}$ to $[0.02, 0.5]$.
+
+4. Data Initialization + Model Structure
+
+See appendix of the original paper.
 
 # Paper Daily: 2D-lifted-3D Applications with 3D Priors 
 
@@ -966,3 +1195,10 @@ $$\nabla_{\theta}\mathcal{L}_{BSD}(\phi,g(\theta)) = \mathbb{E}_{t,\epsilon, c}\
 ## Magic123
 
 ## Consistent123
+
+# Paper Daily: 4D Generative Models
+
+## 4D-fy
+
+
+
